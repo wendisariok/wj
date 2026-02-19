@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-gray-950 text-gray-100 antialiased;
+  }
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  @apply bg-gray-900;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-700 rounded;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-gray-600;
+}
+
+/* Email HTML content container */
+.email-html-content {
+  @apply text-gray-200;
+}
+.email-html-content a {
+  @apply text-blue-400 underline;
+}
+.email-html-content img {
+  max-width: 100%;
+  height: auto;
+}
+.email-html-content table {
+  @apply border-collapse w-full;
+}
+.email-html-content td,
+.email-html-content th {
+  @apply border border-gray-700 p-2;
+}
