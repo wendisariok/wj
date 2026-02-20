@@ -18,6 +18,7 @@ def build_search_query(
     senders: Optional[str] = None,
     subject_keywords: Optional[str] = None,
     filter_logic: str = "and",
+    has_attachment: bool = False,
 ) -> str:
     """Build a Gmail search query string with structured filters.
 
@@ -58,7 +59,9 @@ def build_search_query(
     else:
         query_parts = category_parts
 
-    # Date range is always ANDed — it constrains the time window regardless
+    # These filters are always ANDed — they constrain results regardless
+    if has_attachment:
+        query_parts.append("has:attachment")
     if date_from:
         query_parts.append(f"after:{date_from}")
     if date_to:

@@ -76,8 +76,14 @@ export function getAttachmentDownloadUrl(attachmentId: number): string {
   return `/api/attachments/${attachmentId}/download`;
 }
 
-export async function backfillAttachments(): Promise<{ total_emails: number; processed: number; attachments_downloaded: number; errors: number; status: string }> {
-  const { data } = await api.post('/attachments/backfill');
+export async function getSearchAttachmentCount(searchId: number): Promise<number> {
+  const { data } = await api.get<{ count: number }>(`/attachments/search/${searchId}/count`);
+  return data.count;
+}
+
+export async function backfillAttachments(searchId?: number): Promise<{ total_emails: number; processed: number; attachments_downloaded: number; errors: number; status: string }> {
+  const params = searchId ? { search_id: searchId, force: true } : {};
+  const { data } = await api.post('/attachments/backfill', null, { params });
   return data;
 }
 

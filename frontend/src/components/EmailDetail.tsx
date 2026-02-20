@@ -80,34 +80,63 @@ export default function EmailDetail({ email }: Props) {
       </div>
 
       {/* Attachments */}
-      {email.attachments && email.attachments.length > 0 && (
-        <div className="pb-4 border-b border-gray-800">
-          <div className="text-xs text-gray-500 mb-2">
-            Attachments ({email.attachments.length})
+      {email.attachments && email.attachments.length > 0 && (() => {
+        const imageAtts = email.attachments.filter(att => att.mime_type?.startsWith('image/'));
+        const fileAtts = email.attachments.filter(att => !att.mime_type?.startsWith('image/'));
+        return (
+          <div className="pb-4 border-b border-gray-800">
+            <div className="text-xs text-gray-500 mb-2">
+              Attachments ({email.attachments.length})
+            </div>
+            {imageAtts.length > 0 && (
+              <div className="flex flex-wrap gap-3 mb-3">
+                {imageAtts.map((att) => (
+                  <a
+                    key={att.id}
+                    href={getAttachmentDownloadUrl(att.id)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block border border-gray-700 rounded-md overflow-hidden hover:border-gray-500 transition-colors"
+                  >
+                    <img
+                      src={getAttachmentDownloadUrl(att.id)}
+                      alt={att.filename}
+                      className="max-h-64 max-w-full object-contain bg-gray-900"
+                    />
+                    <div className="px-2 py-1 bg-gray-800 text-xs text-gray-400 truncate max-w-[300px]">
+                      {att.filename}
+                      {att.size != null && att.size > 0 && ` (${formatFileSize(att.size)})`}
+                    </div>
+                  </a>
+                ))}
+              </div>
+            )}
+            {fileAtts.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {fileAtts.map((att) => (
+                  <a
+                    key={att.id}
+                    href={getAttachmentDownloadUrl(att.id)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-md text-sm text-gray-300 hover:text-white transition-colors"
+                  >
+                    <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                    </svg>
+                    <span className="truncate max-w-[200px]">{att.filename}</span>
+                    {att.size != null && att.size > 0 && (
+                      <span className="text-xs text-gray-500 flex-shrink-0">
+                        ({formatFileSize(att.size)})
+                      </span>
+                    )}
+                  </a>
+                ))}
+              </div>
+            )}
           </div>
-          <div className="flex flex-wrap gap-2">
-            {email.attachments.map((att) => (
-              <a
-                key={att.id}
-                href={getAttachmentDownloadUrl(att.id)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-md text-sm text-gray-300 hover:text-white transition-colors"
-              >
-                <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                </svg>
-                <span className="truncate max-w-[200px]">{att.filename}</span>
-                {att.size != null && att.size > 0 && (
-                  <span className="text-xs text-gray-500 flex-shrink-0">
-                    ({formatFileSize(att.size)})
-                  </span>
-                )}
-              </a>
-            ))}
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* View toggle */}
       {hasHtml && hasText && (

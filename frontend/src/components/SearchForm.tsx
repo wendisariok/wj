@@ -14,10 +14,11 @@ export default function SearchForm({ authenticated, onSearchComplete }: Props) {
   const [filterLogic, setFilterLogic] = useState<'and' | 'or'>('and');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [hasAttachment, setHasAttachment] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const hasFilter = senders.trim() || subjectKeywords.trim() || keywords.trim();
+  const hasFilter = senders.trim() || subjectKeywords.trim() || keywords.trim() || hasAttachment;
   const filledFilterCount = [senders.trim(), subjectKeywords.trim(), keywords.trim()].filter(Boolean).length;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -34,6 +35,7 @@ export default function SearchForm({ authenticated, onSearchComplete }: Props) {
         filter_logic: filterLogic,
         date_from: dateFrom || undefined,
         date_to: dateTo || undefined,
+        has_attachment: hasAttachment || undefined,
       });
       onSearchComplete(result);
     } catch (err: any) {
@@ -109,6 +111,17 @@ export default function SearchForm({ authenticated, onSearchComplete }: Props) {
           </button>
         </div>
       )}
+
+      <label className="flex items-center gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={hasAttachment}
+          onChange={(e) => setHasAttachment(e.target.checked)}
+          disabled={!authenticated || loading}
+          className="w-4 h-4 rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500 focus:ring-offset-0"
+        />
+        <span className="text-sm text-gray-300">Has attachments only</span>
+      </label>
 
       <div className="grid grid-cols-2 gap-3">
         <div>

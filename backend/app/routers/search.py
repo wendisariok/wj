@@ -22,6 +22,7 @@ async def search_gmail(request: SearchRequest):
         request.keywords.strip()
         or (request.senders and request.senders.strip())
         or (request.subject_keywords and request.subject_keywords.strip())
+        or request.has_attachment
     )
     if not has_filter:
         raise HTTPException(status_code=422, detail="At least one search filter (keywords, senders, or subject keywords) is required.")
@@ -49,6 +50,7 @@ async def search_gmail(request: SearchRequest):
             senders=request.senders,
             subject_keywords=request.subject_keywords,
             filter_logic=request.filter_logic,
+            has_attachment=request.has_attachment,
         )
         message_ids = search_messages(service, query)
 

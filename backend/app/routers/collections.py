@@ -307,10 +307,27 @@ async def export_collection_docx(collection_id: int):
         raise HTTPException(status_code=404, detail="Collection has no emails")
 
     entries = [dict_from_row(r) for r in rows]
+
+    # Query attachments for all emails in the collection
+    email_ids = [e.get("id") or e.get("email_id") for e in entries]
+    email_ids = [eid for eid in email_ids if eid is not None]
+    attachments_by_email: dict[int, list[dict]] = {}
+    if email_ids:
+        with get_connection() as conn:
+            ph = ",".join("?" for _ in email_ids)
+            att_rows = conn.execute(
+                f"SELECT * FROM attachments WHERE email_id IN ({ph})",
+                email_ids,
+            ).fetchall()
+        for ar in att_rows:
+            ad = dict_from_row(ar)
+            attachments_by_email.setdefault(ad["email_id"], []).append(ad)
+
     docx_bytes = build_collection_docx(
         title=coll["name"],
         description=coll["description"],
         entries=entries,
+        attachments_by_email=attachments_by_email,
     )
 
     safe_name = "".join(c for c in coll["name"][:50] if c.isalnum() or c in " -_").strip() or "collection"

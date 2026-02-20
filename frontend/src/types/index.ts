@@ -14,6 +14,7 @@ export interface SearchRequest {
   filter_logic?: string;
   date_from?: string;
   date_to?: string;
+  has_attachment?: boolean;
 }
 
 export interface SearchResponse {

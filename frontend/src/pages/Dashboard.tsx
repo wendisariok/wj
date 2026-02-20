@@ -5,7 +5,7 @@ import SearchHistory from '../components/SearchHistory';
 import GroupByToolbar from '../components/GroupByToolbar';
 import type { GroupByMode } from '../components/GroupByToolbar';
 import GroupedEmailList from '../components/GroupedEmailList';
-import { getSearchHistory, getSearchEmails, exportSearchDocx } from '../api/client';
+import { getSearchHistory, getSearchEmails, exportSearchDocx, backfillAttachments, getSearchAttachmentCount } from '../api/client';
 import type { SearchHistoryItem, EmailSummary, SearchResponse } from '../types';
 
 export default function Dashboard() {
@@ -16,6 +16,11 @@ export default function Dashboard() {
   const [emailsLoading, setEmailsLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [groupBy, setGroupBy] = useState<GroupByMode>('none');
+  const [backfilling, setBackfilling] = useState(false);
+  const [backfillResult, setBackfillResult] = useState<string | null>(null);
+  const [showAttachmentPrompt, setShowAttachmentPrompt] = useState(false);
+  const [pendingSearchId, setPendingSearchId] = useState<number | null>(null);
+  const [attachmentCount, setAttachmentCount] = useState<number | null>(null);
 
   const refreshHistory = useCallback(async () => {
     try {
@@ -35,14 +40,41 @@ export default function Dashboard() {
   const handleSearchComplete = async (result: SearchResponse) => {
     await refreshHistory();
     loadSearchEmails(result.search_id);
+    // Prompt user to download attachments
+    setPendingSearchId(result.search_id);
+    setShowAttachmentPrompt(true);
+  };
+
+  const handleAttachmentPromptYes = async () => {
+    setShowAttachmentPrompt(false);
+    if (pendingSearchId) {
+      runBackfill(pendingSearchId);
+    }
+    setPendingSearchId(null);
+  };
+
+  const handleAttachmentPromptNo = () => {
+    setShowAttachmentPrompt(false);
+    setPendingSearchId(null);
+  };
+
+  const refreshAttachmentCount = async (searchId: number) => {
+    try {
+      const count = await getSearchAttachmentCount(searchId);
+      setAttachmentCount(count);
+    } catch {
+      setAttachmentCount(null);
+    }
   };
 
   const loadSearchEmails = async (searchId: number) => {
     setActiveSearchId(searchId);
     setEmailsLoading(true);
+    setAttachmentCount(null);
     try {
       const e = await getSearchEmails(searchId);
       setEmails(e);
+      refreshAttachmentCount(searchId);
     } catch {
       setEmails([]);
     } finally {
@@ -63,6 +95,31 @@ export default function Dashboard() {
       // ignore
     } finally {
       setExporting(false);
+    }
+  };
+
+  const runBackfill = async (searchId: number) => {
+    setBackfilling(true);
+    setBackfillResult(null);
+    try {
+      const result = await backfillAttachments(searchId);
+      if (result.attachments_downloaded > 0) {
+        setBackfillResult(`Done — ${result.attachments_downloaded} attachments downloaded from ${result.processed} emails`);
+      } else {
+        setBackfillResult('No attachments found');
+      }
+    } catch {
+      setBackfillResult('Backfill failed');
+    } finally {
+      setBackfilling(false);
+      refreshAttachmentCount(searchId);
+      setTimeout(() => setBackfillResult(null), 5000);
+    }
+  };
+
+  const handleBackfill = async () => {
+    if (activeSearchId) {
+      runBackfill(activeSearchId);
     }
   };
 
@@ -101,23 +158,57 @@ export default function Dashboard() {
             <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
               Emails
             </h2>
-            {activeSearchId && (
-              <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3">
+              {activeSearchId && (
                 <span className="text-xs text-gray-500">
-                  {emails.length} emails
+                  {emails.length} emails{attachmentCount != null && attachmentCount > 0 ? ` · ${attachmentCount} attachments` : ''}
                 </span>
-                {emails.length > 0 && (
-                  <button
-                    onClick={handleExport}
-                    disabled={exporting}
-                    className="px-3 py-1 text-xs bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-200 rounded transition-colors"
-                  >
-                    {exporting ? 'Exporting...' : 'Export .docx'}
-                  </button>
-                )}
-              </div>
-            )}
+              )}
+              {activeSearchId && (
+                <button
+                  onClick={handleBackfill}
+                  disabled={backfilling}
+                  className="px-3 py-1 text-xs bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-200 rounded transition-colors"
+                >
+                  {backfilling ? 'Downloading Attachments...' : 'Download Attachments'}
+                </button>
+              )}
+              {backfillResult && (
+                <span className="text-xs text-gray-400">{backfillResult}</span>
+              )}
+              {activeSearchId && emails.length > 0 && (
+                <button
+                  onClick={handleExport}
+                  disabled={exporting}
+                  className="px-3 py-1 text-xs bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-200 rounded transition-colors"
+                >
+                  {exporting ? 'Exporting...' : 'Export .docx'}
+                </button>
+              )}
+            </div>
           </div>
+
+          {/* Attachment download prompt after search */}
+          {showAttachmentPrompt && (
+            <div className="px-4 py-3 border-b border-gray-800 bg-gray-800/50 flex items-center justify-between">
+              <span className="text-sm text-gray-300">Download attachments for this search?</span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleAttachmentPromptYes}
+                  className="px-3 py-1 text-xs bg-green-700 hover:bg-green-600 text-white rounded transition-colors"
+                >
+                  Yes, download
+                </button>
+                <button
+                  onClick={handleAttachmentPromptNo}
+                  className="px-3 py-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition-colors"
+                >
+                  Skip
+                </button>
+              </div>
+            </div>
+          )}
+
           {emails.length > 0 && (
             <div className="px-4 py-2 border-b border-gray-800">
               <GroupByToolbar value={groupBy} onChange={setGroupBy} />

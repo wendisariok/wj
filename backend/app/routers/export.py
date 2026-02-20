@@ -44,7 +44,22 @@ async def export_docx(request: ExportRequest):
         raise HTTPException(status_code=404, detail="No emails found")
 
     emails = [dict_from_row(r) for r in rows]
-    docx_bytes = build_emails_docx(emails, group_by=request.group_by, title=title)
+
+    # Query attachments for all exported emails
+    email_ids = [e["id"] for e in emails]
+    attachments_by_email: dict[int, list[dict]] = {}
+    if email_ids:
+        with get_connection() as conn:
+            ph = ",".join("?" for _ in email_ids)
+            att_rows = conn.execute(
+                f"SELECT * FROM attachments WHERE email_id IN ({ph})",
+                email_ids,
+            ).fetchall()
+        for ar in att_rows:
+            ad = dict_from_row(ar)
+            attachments_by_email.setdefault(ad["email_id"], []).append(ad)
+
+    docx_bytes = build_emails_docx(emails, group_by=request.group_by, title=title, attachments_by_email=attachments_by_email)
 
     return StreamingResponse(
         io.BytesIO(docx_bytes),
@@ -64,7 +79,17 @@ async def export_single_email_docx(email_id: int):
 
     email = dict_from_row(row)
     subject = email.get("subject") or "email"
-    docx_bytes = build_emails_docx([email], title=subject)
+
+    # Query attachments for this email
+    with get_connection() as conn:
+        att_rows = conn.execute(
+            "SELECT * FROM attachments WHERE email_id = ?", (email_id,)
+        ).fetchall()
+    attachments_by_email: dict[int, list[dict]] = {}
+    if att_rows:
+        attachments_by_email[email_id] = [dict_from_row(ar) for ar in att_rows]
+
+    docx_bytes = build_emails_docx([email], title=subject, attachments_by_email=attachments_by_email)
 
     safe_name = "".join(c for c in subject[:50] if c.isalnum() or c in " -_").strip() or "email"
 

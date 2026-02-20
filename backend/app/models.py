@@ -9,6 +9,7 @@ class SearchRequest(BaseModel):
     filter_logic: str = "and"  # "and" or "or"
     date_from: Optional[str] = None
     date_to: Optional[str] = None
+    has_attachment: bool = False
 
 
 class SearchResponse(BaseModel):

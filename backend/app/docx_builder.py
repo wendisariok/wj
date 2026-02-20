@@ -80,7 +80,18 @@ def _add_title_page(doc: Document, title: str, subtitle: str = ""):
     doc.add_page_break()
 
 
-def _add_email_to_doc(doc: Document, email: dict):
+def _format_file_size(size: Optional[int]) -> str:
+    """Format a file size in bytes for display."""
+    if size is None or size == 0:
+        return ""
+    if size < 1024:
+        return f"{size} B"
+    if size < 1024 * 1024:
+        return f"{size / 1024:.1f} KB"
+    return f"{size / (1024 * 1024):.1f} MB"
+
+
+def _add_email_to_doc(doc: Document, email: dict, attachments: Optional[list[dict]] = None):
     """Add a single email to the document."""
     # Subject heading
     subject = email.get("subject") or "(no subject)"
@@ -111,6 +122,23 @@ def _add_email_to_doc(doc: Document, email: dict):
     for line in body.split("\n"):
         doc.add_paragraph(line)
 
+    # Attachments list
+    if attachments:
+        att_para = doc.add_paragraph()
+        run = att_para.add_run("Attachments:")
+        run.bold = True
+        run.font.size = Pt(10)
+        run.font.color.rgb = RGBColor(0x55, 0x55, 0x55)
+
+        for att in attachments:
+            filename = att.get("filename") or "unnamed"
+            size_str = _format_file_size(att.get("size"))
+            label = f"  {filename}" + (f" ({size_str})" if size_str else "")
+            p = doc.add_paragraph(label)
+            for r in p.runs:
+                r.font.size = Pt(9)
+                r.font.color.rgb = RGBColor(0x66, 0x66, 0x66)
+
     doc.add_paragraph()
 
 
@@ -118,6 +146,7 @@ def build_emails_docx(
     emails: list[dict],
     group_by: str = "none",
     title: str = "Email Export",
+    attachments_by_email: Optional[dict[int, list[dict]]] = None,
 ) -> bytes:
     """Build a Word document from a list of emails.
 
@@ -125,11 +154,13 @@ def build_emails_docx(
         emails: List of email dicts (from DB rows).
         group_by: "none", "date", or "sender".
         title: Document title for the title page.
+        attachments_by_email: Optional mapping of email_id -> list of attachment dicts.
 
     Returns:
         Bytes of the .docx file.
     """
     doc = Document()
+    att_map = attachments_by_email or {}
 
     _add_title_page(doc, title, f"{len(emails)} email(s)")
 
@@ -142,7 +173,7 @@ def build_emails_docx(
         for group_name in sorted(groups.keys(), reverse=True):
             doc.add_heading(group_name, level=1)
             for email in groups[group_name]:
-                _add_email_to_doc(doc, email)
+                _add_email_to_doc(doc, email, att_map.get(email.get("id")))
 
     elif group_by == "sender":
         groups = {}
@@ -152,11 +183,11 @@ def build_emails_docx(
         for group_name in sorted(groups.keys()):
             doc.add_heading(group_name, level=1)
             for email in groups[group_name]:
-                _add_email_to_doc(doc, email)
+                _add_email_to_doc(doc, email, att_map.get(email.get("id")))
 
     else:
         for email in emails:
-            _add_email_to_doc(doc, email)
+            _add_email_to_doc(doc, email, att_map.get(email.get("id")))
 
     buf = io.BytesIO()
     doc.save(buf)
@@ -167,6 +198,7 @@ def build_collection_docx(
     title: str,
     description: str,
     entries: list[dict],
+    attachments_by_email: Optional[dict[int, list[dict]]] = None,
 ) -> bytes:
     """Build a structured book document from a collection of emails.
 
@@ -175,11 +207,13 @@ def build_collection_docx(
         description: Collection description.
         entries: List of dicts with 'chapter_title', 'subject', 'sender',
                  'recipient', 'date', 'body_text', 'body_html', 'snippet'.
+        attachments_by_email: Optional mapping of email_id -> list of attachment dicts.
 
     Returns:
         Bytes of the .docx file.
     """
     doc = Document()
+    att_map = attachments_by_email or {}
 
     _add_title_page(doc, title, description)
 
@@ -201,7 +235,8 @@ def build_collection_docx(
     for i, entry in enumerate(entries, 1):
         chapter = entry.get("chapter_title") or entry.get("subject") or f"Chapter {i}"
         doc.add_heading(chapter, level=1)
-        _add_email_to_doc(doc, entry)
+        email_id = entry.get("id") or entry.get("email_id")
+        _add_email_to_doc(doc, entry, att_map.get(email_id))
         if i < len(entries):
             doc.add_page_break()
 
