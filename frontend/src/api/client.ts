@@ -10,6 +10,7 @@ import type {
   CollectionSummary,
   CollectionDetail,
   CollectionEmailItem,
+  BookStyle,
 } from '../types';
 
 const api = axios.create({
@@ -118,6 +119,11 @@ export async function addEmailToCollection(collectionId: number, emailId: number
   return data;
 }
 
+export async function bulkAddEmailsToCollection(collectionId: number, emailIds: number[]): Promise<{ added: number; skipped: number }> {
+  const { data } = await api.post<{ added: number; skipped: number }>(`/collections/${collectionId}/emails/bulk`, { email_ids: emailIds });
+  return data;
+}
+
 export async function removeEmailFromCollection(collectionId: number, entryId: number): Promise<void> {
   await api.delete(`/collections/${collectionId}/emails/${entryId}`);
 }
@@ -137,6 +143,28 @@ export async function exportCollectionDocx(collectionId: number): Promise<void> 
   const a = document.createElement('a');
   a.href = url;
   a.download = 'collection-export.docx';
+  a.click();
+  window.URL.revokeObjectURL(url);
+}
+
+export async function getCollectionPreviewHtml(collectionId: number, bookStyle: BookStyle): Promise<string> {
+  const { data } = await api.get(`/collections/${collectionId}/preview`, {
+    params: { book_style: bookStyle },
+    responseType: 'text',
+    transformResponse: [(d: string) => d],
+  });
+  return data;
+}
+
+export async function exportCollectionPdf(collectionId: number, bookStyle: BookStyle): Promise<void> {
+  const { data } = await api.post(`/collections/${collectionId}/export/pdf`, null, {
+    params: { book_style: bookStyle },
+    responseType: 'blob',
+  });
+  const url = window.URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'collection-export.pdf';
   a.click();
   window.URL.revokeObjectURL(url);
 }

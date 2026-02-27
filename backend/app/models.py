@@ -140,6 +140,10 @@ class AddEmailToCollection(BaseModel):
     chapter_title: str = ""
 
 
+class BulkAddEmailsToCollection(BaseModel):
+    email_ids: list[int]
+
+
 class ReorderCollectionEmails(BaseModel):
     entry_ids: list[int]
 

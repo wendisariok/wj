@@ -1,8 +1,8 @@
 import io
 from sqlite3 import IntegrityError
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import HTMLResponse, StreamingResponse
 
 from ..database import get_connection, dict_from_row
 from ..models import (
@@ -12,10 +12,12 @@ from ..models import (
     CollectionDetail,
     CollectionEmailItem,
     AddEmailToCollection,
+    BulkAddEmailsToCollection,
     ReorderCollectionEmails,
     UpdateCollectionEmail,
 )
 from ..docx_builder import build_collection_docx
+from ..html_builder import build_collection_html, build_collection_pdf
 
 router = APIRouter()
 
@@ -204,6 +206,48 @@ async def add_email_to_collection(collection_id: int, request: AddEmailToCollect
     )
 
 
+@router.post("/{collection_id}/emails/bulk")
+async def bulk_add_emails_to_collection(collection_id: int, request: BulkAddEmailsToCollection):
+    """Add multiple emails to a collection, skipping duplicates."""
+    added = 0
+    skipped = 0
+
+    with get_connection() as conn:
+        coll = conn.execute("SELECT id FROM collections WHERE id = ?", (collection_id,)).fetchone()
+        if not coll:
+            raise HTTPException(status_code=404, detail="Collection not found")
+
+        max_order = conn.execute(
+            "SELECT COALESCE(MAX(sort_order), -1) as max_order FROM collection_emails WHERE collection_id = ?",
+            (collection_id,),
+        ).fetchone()["max_order"]
+
+        for email_id in request.email_ids:
+            email = conn.execute("SELECT id FROM emails WHERE id = ?", (email_id,)).fetchone()
+            if not email:
+                skipped += 1
+                continue
+
+            try:
+                max_order += 1
+                conn.execute(
+                    "INSERT INTO collection_emails (collection_id, email_id, sort_order, chapter_title) VALUES (?, ?, ?, ?)",
+                    (collection_id, email_id, max_order, ""),
+                )
+                added += 1
+            except IntegrityError:
+                skipped += 1
+
+        if added > 0:
+            conn.execute(
+                "UPDATE collections SET updated_at = datetime('now') WHERE id = ?",
+                (collection_id,),
+            )
+        conn.commit()
+
+    return {"added": added, "skipped": skipped}
+
+
 @router.delete("/{collection_id}/emails/{entry_id}")
 async def remove_email_from_collection(collection_id: int, entry_id: int):
     """Remove an email from a collection."""
@@ -284,9 +328,13 @@ async def reorder_collection_emails(collection_id: int, request: ReorderCollecti
     return {"ok": True}
 
 
-@router.post("/{collection_id}/export/docx")
-async def export_collection_docx(collection_id: int):
-    """Export a collection as a structured book in .docx format."""
+def _get_collection_export_data(collection_id: int) -> tuple[dict, list[dict], dict[int, list[dict]]]:
+    """Fetch collection metadata, ordered entries, and attachments.
+
+    Returns:
+        (collection_row, entries, attachments_by_email)
+    Raises HTTPException if collection not found or empty.
+    """
     with get_connection() as conn:
         coll = conn.execute(
             "SELECT * FROM collections WHERE id = ?", (collection_id,)
@@ -308,7 +356,6 @@ async def export_collection_docx(collection_id: int):
 
     entries = [dict_from_row(r) for r in rows]
 
-    # Query attachments for all emails in the collection
     email_ids = [e.get("id") or e.get("email_id") for e in entries]
     email_ids = [eid for eid in email_ids if eid is not None]
     attachments_by_email: dict[int, list[dict]] = {}
@@ -323,6 +370,14 @@ async def export_collection_docx(collection_id: int):
             ad = dict_from_row(ar)
             attachments_by_email.setdefault(ad["email_id"], []).append(ad)
 
+    return dict_from_row(coll), entries, attachments_by_email
+
+
+@router.post("/{collection_id}/export/docx")
+async def export_collection_docx(collection_id: int):
+    """Export a collection as a structured book in .docx format."""
+    coll, entries, attachments_by_email = _get_collection_export_data(collection_id)
+
     docx_bytes = build_collection_docx(
         title=coll["name"],
         description=coll["description"],
@@ -336,4 +391,48 @@ async def export_collection_docx(collection_id: int):
         io.BytesIO(docx_bytes),
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": f'attachment; filename="{safe_name}.docx"'},
+    )
+
+
+@router.get("/{collection_id}/preview")
+async def preview_collection(
+    collection_id: int,
+    book_style: str = Query("memoir", pattern="^(memoir|reference|correspondence)$"),
+):
+    """Return styled HTML preview of the collection as a book."""
+    coll, entries, attachments_by_email = _get_collection_export_data(collection_id)
+
+    html_str = build_collection_html(
+        title=coll["name"],
+        description=coll["description"] or "",
+        entries=entries,
+        attachments_by_email=attachments_by_email,
+        book_style=book_style,
+    )
+
+    return HTMLResponse(content=html_str)
+
+
+@router.post("/{collection_id}/export/pdf")
+async def export_collection_pdf(
+    collection_id: int,
+    book_style: str = Query("memoir", pattern="^(memoir|reference|correspondence)$"),
+):
+    """Export a collection as a styled PDF book."""
+    coll, entries, attachments_by_email = _get_collection_export_data(collection_id)
+
+    pdf_bytes = build_collection_pdf(
+        title=coll["name"],
+        description=coll["description"] or "",
+        entries=entries,
+        attachments_by_email=attachments_by_email,
+        book_style=book_style,
+    )
+
+    safe_name = "".join(c for c in coll["name"][:50] if c.isalnum() or c in " -_").strip() or "collection"
+
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}.pdf"'},
     )

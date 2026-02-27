@@ -5,8 +5,8 @@ import SearchHistory from '../components/SearchHistory';
 import GroupByToolbar from '../components/GroupByToolbar';
 import type { GroupByMode } from '../components/GroupByToolbar';
 import GroupedEmailList from '../components/GroupedEmailList';
-import { getSearchHistory, getSearchEmails, exportSearchDocx, backfillAttachments, getSearchAttachmentCount } from '../api/client';
-import type { SearchHistoryItem, EmailSummary, SearchResponse } from '../types';
+import { getSearchHistory, getSearchEmails, exportSearchDocx, backfillAttachments, getSearchAttachmentCount, getCollections, createCollection, bulkAddEmailsToCollection } from '../api/client';
+import type { SearchHistoryItem, EmailSummary, SearchResponse, CollectionSummary } from '../types';
 
 export default function Dashboard() {
   const [authenticated, setAuthenticated] = useState(false);
@@ -21,6 +21,11 @@ export default function Dashboard() {
   const [showAttachmentPrompt, setShowAttachmentPrompt] = useState(false);
   const [pendingSearchId, setPendingSearchId] = useState<number | null>(null);
   const [attachmentCount, setAttachmentCount] = useState<number | null>(null);
+  const [showCollectionPicker, setShowCollectionPicker] = useState(false);
+  const [collections, setCollections] = useState<CollectionSummary[]>([]);
+  const [addingToCollection, setAddingToCollection] = useState(false);
+  const [collectionResult, setCollectionResult] = useState<string | null>(null);
+  const [newCollectionName, setNewCollectionName] = useState('');
 
   const refreshHistory = useCallback(async () => {
     try {
@@ -123,6 +128,50 @@ export default function Dashboard() {
     }
   };
 
+  const handleAddToCollectionClick = async () => {
+    try {
+      const cols = await getCollections();
+      setCollections(cols);
+    } catch {
+      setCollections([]);
+    }
+    setNewCollectionName('');
+    setShowCollectionPicker(true);
+  };
+
+  const handleSelectCollection = async (collectionId: number) => {
+    setAddingToCollection(true);
+    try {
+      const emailIds = emails.map(e => e.id);
+      const result = await bulkAddEmailsToCollection(collectionId, emailIds);
+      setCollectionResult(`Added ${result.added} email${result.added !== 1 ? 's' : ''}${result.skipped > 0 ? `, ${result.skipped} skipped` : ''}`);
+    } catch {
+      setCollectionResult('Failed to add emails');
+    } finally {
+      setAddingToCollection(false);
+      setShowCollectionPicker(false);
+      setTimeout(() => setCollectionResult(null), 5000);
+    }
+  };
+
+  const handleCreateAndAdd = async () => {
+    if (!newCollectionName.trim()) return;
+    setAddingToCollection(true);
+    try {
+      const col = await createCollection(newCollectionName.trim());
+      const emailIds = emails.map(e => e.id);
+      const result = await bulkAddEmailsToCollection(col.id, emailIds);
+      setCollectionResult(`Created "${col.name}" — added ${result.added} email${result.added !== 1 ? 's' : ''}`);
+    } catch {
+      setCollectionResult('Failed to create collection');
+    } finally {
+      setAddingToCollection(false);
+      setShowCollectionPicker(false);
+      setNewCollectionName('');
+      setTimeout(() => setCollectionResult(null), 5000);
+    }
+  };
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       {/* Left panel — Search + History */}
@@ -175,6 +224,67 @@ export default function Dashboard() {
               )}
               {backfillResult && (
                 <span className="text-xs text-gray-400">{backfillResult}</span>
+              )}
+              {activeSearchId && emails.length > 0 && (
+                <div className="relative">
+                  <button
+                    onClick={handleAddToCollectionClick}
+                    disabled={addingToCollection}
+                    className="px-3 py-1 text-xs bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-200 rounded transition-colors"
+                  >
+                    {addingToCollection ? 'Adding...' : 'Add to Collection'}
+                  </button>
+                  {showCollectionPicker && (
+                    <div className="absolute right-0 top-full mt-1 w-64 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50">
+                      <div className="p-2 border-b border-gray-700">
+                        <div className="flex gap-1">
+                          <input
+                            type="text"
+                            value={newCollectionName}
+                            onChange={e => setNewCollectionName(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && handleCreateAndAdd()}
+                            placeholder="New collection name..."
+                            className="flex-1 px-2 py-1 text-xs bg-gray-900 border border-gray-600 rounded text-gray-200 placeholder-gray-500"
+                          />
+                          <button
+                            onClick={handleCreateAndAdd}
+                            disabled={!newCollectionName.trim()}
+                            className="px-2 py-1 text-xs bg-green-700 hover:bg-green-600 disabled:opacity-50 text-white rounded transition-colors"
+                          >
+                            Create
+                          </button>
+                        </div>
+                      </div>
+                      <div className="max-h-48 overflow-y-auto">
+                        {collections.length === 0 ? (
+                          <div className="px-3 py-2 text-xs text-gray-500">No existing collections</div>
+                        ) : (
+                          collections.map(col => (
+                            <button
+                              key={col.id}
+                              onClick={() => handleSelectCollection(col.id)}
+                              className="w-full text-left px-3 py-2 text-xs text-gray-300 hover:bg-gray-700 transition-colors"
+                            >
+                              <div className="font-medium">{col.name}</div>
+                              <div className="text-gray-500">{col.email_count} emails</div>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                      <div className="p-1 border-t border-gray-700">
+                        <button
+                          onClick={() => setShowCollectionPicker(false)}
+                          className="w-full px-2 py-1 text-xs text-gray-400 hover:text-gray-200 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              {collectionResult && (
+                <span className="text-xs text-gray-400">{collectionResult}</span>
               )}
               {activeSearchId && emails.length > 0 && (
                 <button
