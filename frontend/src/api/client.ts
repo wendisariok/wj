@@ -11,6 +11,7 @@ import type {
   CollectionDetail,
   CollectionEmailItem,
   BookStyle,
+  ChapterAssignment,
 } from '../types';
 
 const api = axios.create({
@@ -167,4 +168,20 @@ export async function exportCollectionPdf(collectionId: number, bookStyle: BookS
   a.download = 'collection-export.pdf';
   a.click();
   window.URL.revokeObjectURL(url);
+}
+
+// AI Book Builder API
+
+export async function suggestBookTitle(collectionId: number): Promise<string> {
+  const { data } = await api.post<{ title: string }>(`/collections/${collectionId}/ai/suggest-title`);
+  return data.title;
+}
+
+export async function suggestChapters(collectionId: number, title: string, chapterCount: number): Promise<ChapterAssignment[]> {
+  const { data } = await api.post<{ chapters: ChapterAssignment[] }>(`/collections/${collectionId}/ai/suggest-chapters`, { title, chapter_count: chapterCount });
+  return data.chapters;
+}
+
+export async function applyAIStructure(collectionId: number, title: string, chapters: ChapterAssignment[]): Promise<void> {
+  await api.post(`/collections/${collectionId}/ai/apply-structure`, { title, chapters });
 }

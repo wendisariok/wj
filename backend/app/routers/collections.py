@@ -15,9 +15,12 @@ from ..models import (
     BulkAddEmailsToCollection,
     ReorderCollectionEmails,
     UpdateCollectionEmail,
+    SuggestChaptersRequest,
+    ApplyStructureRequest,
 )
 from ..docx_builder import build_collection_docx
 from ..html_builder import build_collection_html, build_collection_pdf
+from .. import ai_builder
 
 router = APIRouter()
 
@@ -436,3 +439,96 @@ async def export_collection_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{safe_name}.pdf"'},
     )
+
+
+# ---------------------------------------------------------------------------
+# AI Book Builder endpoints
+# ---------------------------------------------------------------------------
+
+
+def _get_collection_emails_with_body(collection_id: int) -> list[dict]:
+    """Fetch collection emails with body text for AI analysis."""
+    with get_connection() as conn:
+        coll = conn.execute("SELECT id FROM collections WHERE id = ?", (collection_id,)).fetchone()
+        if not coll:
+            raise HTTPException(status_code=404, detail="Collection not found")
+
+        rows = conn.execute(
+            """SELECT ce.sort_order, e.id, e.subject, e.sender, e.date, e.body_text, e.snippet
+               FROM collection_emails ce
+               JOIN emails e ON ce.email_id = e.id
+               WHERE ce.collection_id = ?
+               ORDER BY ce.sort_order""",
+            (collection_id,),
+        ).fetchall()
+
+    if not rows:
+        raise HTTPException(status_code=400, detail="Collection has no emails")
+
+    return [dict_from_row(r) for r in rows]
+
+
+@router.post("/{collection_id}/ai/suggest-title")
+async def ai_suggest_title(collection_id: int):
+    """Use AI to suggest a book title based on collection emails."""
+    emails = _get_collection_emails_with_body(collection_id)
+    try:
+        title = ai_builder.suggest_book_title(emails)
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI request failed: {e}")
+    return {"title": title}
+
+
+@router.post("/{collection_id}/ai/suggest-chapters")
+async def ai_suggest_chapters(collection_id: int, request: SuggestChaptersRequest):
+    """Use AI to suggest chapter groupings for collection emails."""
+    emails = _get_collection_emails_with_body(collection_id)
+    try:
+        chapters = ai_builder.suggest_chapters(emails, request.title, request.chapter_count)
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI request failed: {e}")
+    return {"chapters": chapters}
+
+
+@router.post("/{collection_id}/ai/apply-structure")
+async def ai_apply_structure(collection_id: int, request: ApplyStructureRequest):
+    """Apply AI-generated book structure to the collection."""
+    with get_connection() as conn:
+        coll = conn.execute("SELECT id FROM collections WHERE id = ?", (collection_id,)).fetchone()
+        if not coll:
+            raise HTTPException(status_code=404, detail="Collection not found")
+
+        # Get current collection_emails in sort_order to map indices
+        rows = conn.execute(
+            """SELECT ce.id, ce.email_id
+               FROM collection_emails ce
+               WHERE ce.collection_id = ?
+               ORDER BY ce.sort_order""",
+            (collection_id,),
+        ).fetchall()
+        entries = [dict_from_row(r) for r in rows]
+
+        # Apply structure: update chapter_title and sort_order
+        sort_order = 0
+        for chapter in request.chapters:
+            for idx in chapter.email_indices:
+                if 0 <= idx < len(entries):
+                    entry_id = entries[idx]["id"]
+                    conn.execute(
+                        "UPDATE collection_emails SET chapter_title = ?, sort_order = ? WHERE id = ?",
+                        (chapter.chapter_title, sort_order, entry_id),
+                    )
+                    sort_order += 1
+
+        # Update collection name to book title
+        conn.execute(
+            "UPDATE collections SET name = ?, updated_at = datetime('now') WHERE id = ?",
+            (request.title, collection_id),
+        )
+        conn.commit()
+
+    return {"ok": True}

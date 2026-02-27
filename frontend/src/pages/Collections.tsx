@@ -8,8 +8,11 @@ import {
   updateCollectionEmail,
   reorderCollectionEmails,
   exportCollectionDocx,
+  exportCollectionPdf,
 } from '../api/client';
-import type { CollectionSummary, CollectionDetail, CollectionEmailItem } from '../types';
+import type { CollectionSummary, CollectionDetail, BookStyle } from '../types';
+import BookPreview from '../components/BookPreview';
+import BookBuilderWizard from '../components/BookBuilderWizard';
 
 function formatDate(dateStr?: string): string {
   if (!dateStr) return '';
@@ -33,6 +36,11 @@ export default function Collections() {
   const [editingEntry, setEditingEntry] = useState<number | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [bookStyle, setBookStyle] = useState<BookStyle>('memoir');
+  const [showPreview, setShowPreview] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+  const [showWizard, setShowWizard] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -46,6 +54,17 @@ export default function Collections() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // Close export menu on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
+        setShowExportMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
 
   const loadDetail = async (id: number) => {
     setActiveId(id);
@@ -78,6 +97,7 @@ export default function Collections() {
       if (activeId === id) {
         setActiveId(null);
         setDetail(null);
+        setShowPreview(false);
       }
       await refresh();
     } catch {
@@ -107,10 +127,21 @@ export default function Collections() {
     }
   };
 
-  const handleExport = async () => {
+  const handleExportDocx = async () => {
     if (!activeId) return;
+    setShowExportMenu(false);
     try {
       await exportCollectionDocx(activeId);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleExportPdf = async () => {
+    if (!activeId) return;
+    setShowExportMenu(false);
+    try {
+      await exportCollectionPdf(activeId, bookStyle);
     } catch {
       // ignore
     }
@@ -143,6 +174,8 @@ export default function Collections() {
       loadDetail(activeId);
     }
   };
+
+  const hasEmails = detail && detail.emails.length > 0;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -209,18 +242,62 @@ export default function Collections() {
 
       {/* Right panel — Collection detail */}
       <div className="lg:col-span-2">
-        <div className="bg-gray-900/50 border border-gray-800 rounded-lg overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
+        <div className="bg-gray-900/50 border border-gray-800 rounded-lg overflow-hidden flex flex-col" style={{ minHeight: '400px' }}>
+          <div className="px-4 py-3 border-b border-gray-800 flex items-center justify-between gap-2">
             <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
               {detail ? detail.name : 'Select a Collection'}
             </h2>
-            {detail && detail.emails.length > 0 && (
-              <button
-                onClick={handleExport}
-                className="px-3 py-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-200 rounded transition-colors"
-              >
-                Export as Book (.docx)
-              </button>
+            {hasEmails && (
+              <div className="flex items-center gap-2">
+                {/* AI Book Builder */}
+                <button
+                  onClick={() => setShowWizard(true)}
+                  className="px-3 py-1 text-xs bg-purple-600 hover:bg-purple-500 text-white rounded transition-colors"
+                >
+                  AI Book Builder
+                </button>
+
+                {/* Preview toggle */}
+                <button
+                  onClick={() => setShowPreview(!showPreview)}
+                  className={`px-3 py-1 text-xs rounded transition-colors ${
+                    showPreview
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-700 hover:bg-gray-600 text-gray-200'
+                  }`}
+                >
+                  {showPreview ? 'Hide Preview' : 'Preview'}
+                </button>
+
+                {/* Export dropdown */}
+                <div className="relative" ref={exportMenuRef}>
+                  <button
+                    onClick={() => setShowExportMenu(!showExportMenu)}
+                    className="px-3 py-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-200 rounded transition-colors flex items-center gap-1"
+                  >
+                    Export
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                  {showExportMenu && (
+                    <div className="absolute right-0 mt-1 w-48 bg-gray-800 border border-gray-700 rounded-md shadow-lg z-10">
+                      <button
+                        onClick={handleExportPdf}
+                        className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 transition-colors rounded-t-md"
+                      >
+                        Export PDF
+                      </button>
+                      <button
+                        onClick={handleExportDocx}
+                        className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 transition-colors rounded-b-md"
+                      >
+                        Export Word (.docx)
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
             )}
           </div>
 
@@ -239,6 +316,43 @@ export default function Collections() {
           ) : detail.emails.length === 0 ? (
             <div className="text-sm text-gray-500 py-12 text-center">
               This collection is empty. Add emails from the email detail view.
+            </div>
+          ) : showPreview ? (
+            /* Split view: chapter list (narrow) + preview (wide) */
+            <div className="flex flex-1 min-h-0" style={{ height: '600px' }}>
+              {/* Narrow chapter list */}
+              <div className="w-64 flex-shrink-0 border-r border-gray-800 overflow-y-auto">
+                <div className="divide-y divide-gray-800">
+                  {detail.emails.map((entry, idx) => (
+                    <div
+                      key={entry.id}
+                      draggable
+                      onDragStart={() => handleDragStart(idx)}
+                      onDragOver={(e) => handleDragOver(e, idx)}
+                      onDrop={(e) => handleDrop(e, idx)}
+                      className="px-3 py-2 hover:bg-gray-800/50 transition-colors cursor-grab active:cursor-grabbing"
+                    >
+                      <div className="flex items-start gap-2">
+                        <span className="text-xs text-gray-600 mt-0.5 select-none">{idx + 1}.</span>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-medium text-gray-300 truncate">
+                            {entry.chapter_title || entry.subject || '(no subject)'}
+                          </div>
+                          <div className="text-xs text-gray-500 truncate">{entry.sender}</div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {/* Preview iframe */}
+              <div className="flex-1 min-w-0">
+                <BookPreview
+                  collectionId={activeId!}
+                  bookStyle={bookStyle}
+                  onStyleChange={setBookStyle}
+                />
+              </div>
             </div>
           ) : (
             <div className="divide-y divide-gray-800">
@@ -312,6 +426,21 @@ export default function Collections() {
           )}
         </div>
       </div>
+
+      {showWizard && detail && activeId && (
+        <BookBuilderWizard
+          collectionId={activeId}
+          collectionName={detail.name}
+          emailCount={detail.emails.length}
+          emails={detail.emails.map(e => ({ subject: e.subject, sender: e.sender }))}
+          onClose={() => setShowWizard(false)}
+          onComplete={() => {
+            setShowWizard(false);
+            loadDetail(activeId);
+            refresh();
+          }}
+        />
+      )}
     </div>
   );
 }

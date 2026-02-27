@@ -217,27 +217,34 @@ def build_collection_docx(
 
     _add_title_page(doc, title, description)
 
+    # Group entries by chapter_title (consecutive entries with same title = one chapter)
+    chapter_groups: list[dict] = []
+    for entry in entries:
+        ch_title = entry.get("chapter_title") or entry.get("subject") or "Untitled"
+        if not chapter_groups or chapter_groups[-1]["title"] != ch_title:
+            chapter_groups.append({"title": ch_title, "emails": []})
+        chapter_groups[-1]["emails"].append(entry)
+
     # Table of contents
-    if entries:
+    if chapter_groups:
         toc_heading = doc.add_heading("Table of Contents", level=1)
         for run in toc_heading.runs:
             run.font.color.rgb = RGBColor(0x22, 0x22, 0x22)
 
-        for i, entry in enumerate(entries, 1):
-            chapter = entry.get("chapter_title") or entry.get("subject") or f"Chapter {i}"
+        for i, group in enumerate(chapter_groups, 1):
             toc_para = doc.add_paragraph()
-            run = toc_para.add_run(f"{i}. {chapter}")
+            run = toc_para.add_run(f"{i}. {group['title']}")
             run.font.size = Pt(11)
 
         doc.add_page_break()
 
     # Chapters
-    for i, entry in enumerate(entries, 1):
-        chapter = entry.get("chapter_title") or entry.get("subject") or f"Chapter {i}"
-        doc.add_heading(chapter, level=1)
-        email_id = entry.get("id") or entry.get("email_id")
-        _add_email_to_doc(doc, entry, att_map.get(email_id))
-        if i < len(entries):
+    for i, group in enumerate(chapter_groups, 1):
+        doc.add_heading(group["title"], level=1)
+        for entry in group["emails"]:
+            email_id = entry.get("id") or entry.get("email_id")
+            _add_email_to_doc(doc, entry, att_map.get(email_id))
+        if i < len(chapter_groups):
             doc.add_page_break()
 
     buf = io.BytesIO()

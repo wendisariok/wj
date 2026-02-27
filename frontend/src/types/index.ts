@@ -110,3 +110,10 @@ export interface CollectionDetail {
   updated_at?: string;
   emails: CollectionEmailItem[];
 }
+
+export type BookStyle = 'memoir' | 'reference' | 'correspondence';
+
+export interface ChapterAssignment {
+  chapter_title: string;
+  email_indices: number[];
+}

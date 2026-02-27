@@ -150,3 +150,20 @@ class ReorderCollectionEmails(BaseModel):
 
 class UpdateCollectionEmail(BaseModel):
     chapter_title: str
+
+
+# AI Book Builder models
+
+class SuggestChaptersRequest(BaseModel):
+    title: str
+    chapter_count: int
+
+
+class ChapterAssignment(BaseModel):
+    chapter_title: str
+    email_indices: list[int]
+
+
+class ApplyStructureRequest(BaseModel):
+    title: str
+    chapters: list[ChapterAssignment]
